@@ -1,10 +1,13 @@
 import yaml
+import csv
+import glob
 import random
 import imageio
 import numpy as np
 from pathlib import Path
 
-
+yaml_file_names = glob.glob('./build/yaml-data/*.yaml')
+rows_to_write = []
 class Generator:
 
     def __init__(self, config, config_normal):
@@ -15,7 +18,16 @@ class Generator:
         # Create build directory
         self.build = Path(self.config['build'])
         self.build.mkdir(exist_ok=True)
-
+        #create large image director
+        self.ImagesNormal = Path(self.config['Images-normal'])
+        self.ImagesNormal.mkdir(exist_ok=True)
+        #create large image director
+        self.ImagesLarge = Path(self.config['Images-large'])
+        self.ImagesLarge.mkdir(exist_ok=True)
+       # yaml files
+        self.YamlData = Path(self.config['yaml-files'])
+        self.YamlData.mkdir(exist_ok=True)     
+        
     def generate_normal(self, img_id, traits, rec=0):
         # Raise exception if no unique image could be create after 200 tries
         # Add some more traits or lower the number of generated images
@@ -28,7 +40,8 @@ class Generator:
         image = np.zeros((self.config['image_height'], self.config['image_width'], 3))
         for idx, (layer_id, layer) in enumerate(self.config_normal.items()):
             image, ids[idx], name, value, trait = self.add_layer(image, layer_id, layer, traits)
-            desc[layer_id] = {'id': trait, 'name': name, 'value': value}
+            desc[layer_id] = {'value': value}
+            desc["name"]=img_id
 
         # make sure that each two doggos differ in at least some traits
         diff = self.trait_matrix - ids
@@ -43,22 +56,22 @@ class Generator:
         self.trait_matrix = np.concatenate((self.trait_matrix, ids))
 
         # Save description
-        name = f'{self.config["prefix"]}_{img_id:04d}'
+        name = f'{self.config["prefix"]}{img_id:02d}'
         self.save_desc(name, desc)
         # Save image in original and upscaled resolution
         self.save_img(name, image)
         image = self.scale_img(image, self.config['image_scale'])
-        self.save_img(f'{name}_large', image)
+        self.save_large(f'{name}_large', image)
 
     def generate_legend(self, legend):
         # Load image of legendary doggo
         image = imageio.imread(legend['src'])[:, :, :3]
         # Save unscaled version in build folder
-        name = f'{self.config["prefix"]}_{legend["image_id"]:04d}'
+        name = f'{self.config["prefix"]}{legend["image_id"]:02d}'
         self.save_img(name, image)
         # Scale and save high res version
         image = self.scale_img(image, self.config['image_scale'])
-        self.save_img(f'{name}_large', image)
+        self.save_large(f'{name}_large', image)
         # Save description
         self.save_desc(name, {'Legendary': legend['name']})
 
@@ -69,13 +82,13 @@ class Generator:
         i_width = self.config['image_width']
         i_height = self.config['image_height']
         collage = np.zeros((c_height * i_height, c_width * i_width, 3))
-
+        
         # Load single images and add them to the collage
         for i in range(c_height):
             for j in range(c_width):
                 # Load single image (ignore alpha channel)
                 image_id = i * c_width + j + 1
-                path = self.build / f'{self.config["prefix"]}_{image_id:04d}.png'
+                path = self.ImagesNormal / f'{self.config["prefix"]}{image_id:02d}.png'
                 image = imageio.imread(path)[:, :, :3]
                 # Add image to collage
                 x1, x2 = j * i_width, (j + 1) * i_width
@@ -85,6 +98,7 @@ class Generator:
         # scale and save collage
         collage = self.scale_img(collage, self.config['collage_scale'])
         self.save_img('collage', collage)
+        
 
     def add_layer(self, image, key_c, value_c, traits):
         # get random trait or use given one
@@ -103,13 +117,19 @@ class Generator:
         return image, idx, cat_name, val_name, trait_id
 
     def save_img(self, name, image):
-        image_path = self.build / (name + '.png')
+        image_path = self.ImagesNormal / (name + '.png')
+        alpha = np.full((image.shape[0], image.shape[1], 1), 255)
+        image = np.concatenate((image, alpha), axis=-1)
+        imageio.imwrite(image_path, image)
+
+    def save_large(self, name, image):
+        image_path = self.ImagesLarge / (name + '.png')
         alpha = np.full((image.shape[0], image.shape[1], 1), 255)
         image = np.concatenate((image, alpha), axis=-1)
         imageio.imwrite(image_path, image)
 
     def save_desc(self, name, desc):
-        desc_path = self.build / (name + '.yaml')
+        desc_path = self.YamlData / (name + '.yaml')
         with open(desc_path, 'w') as desc_file:
             desc_file.write(yaml.dump(desc))
 
@@ -146,7 +166,32 @@ class Generator:
         src = category[value].get('src', None)
         cat_name = category[value].get('category', cat_name)
         return name, src, cat_name
+    @staticmethod
+    def bulk_yaml_to_csv():
+        for idx, each_yaml_file in enumerate(yaml_file_names):
+            print("Processing file ", idx+1, "of", len(yaml_file_names), "file name:", each_yaml_file)
+            with open(each_yaml_file) as f:
+                data = yaml.load(f,Loader=yaml.FullLoader)
+                print(data)
+                try:
+                    data["Legendary"]
+                except KeyError:
+                    rows_to_write.append(
+                        [data["name"],
+                        data["background"]["value"],
+                        data["clothes"]["value"],
+                        data["ear"]["value"],
+                        data["fur"]["value"],
+                        data["hat"]["value"],
+                        data["mouth"]["value"]])  
+                else:
+                    rows_to_write.append([data["Legendary"]]) 
 
+
+        with open('output_csv_file.csv', 'w') as out:
+            csv_writer = csv.writer(out, delimiter=',', quotechar=' ')
+            csv_writer.writerows(rows_to_write)
+            print("Output file output_csv_file.csv created")
 
 def add_mistakes(idx):
     # Fixed the script over time but some mistakes found their way onto the blockchain.
@@ -186,7 +231,8 @@ def main():
 
     # Create single picture of all doggos
     gen.generate_collage()
-
-
+   
+    gen.bulk_yaml_to_csv()
+   
 if __name__ == "__main__":
     main()
