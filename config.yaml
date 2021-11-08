@@ -38,3 +38,6 @@ Images-large: ./build/Images-large
 
 #yaml Folder
 yaml-files: ./build/yaml-data
+
+#Does this Collection have properties
+hasProperties: false

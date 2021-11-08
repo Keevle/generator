@@ -8,6 +8,8 @@ from pathlib import Path
 
 yaml_file_names = glob.glob('./build/yaml-data/*.yaml')
 rows_to_write = []
+
+
 class Generator:
 
     def __init__(self, config, config_normal):
@@ -18,16 +20,16 @@ class Generator:
         # Create build directory
         self.build = Path(self.config['build'])
         self.build.mkdir(exist_ok=True)
-        #create large image director
+        # create large image director
         self.ImagesNormal = Path(self.config['Images-normal'])
         self.ImagesNormal.mkdir(exist_ok=True)
-        #create large image director
+        # create large image director
         self.ImagesLarge = Path(self.config['Images-large'])
         self.ImagesLarge.mkdir(exist_ok=True)
        # yaml files
         self.YamlData = Path(self.config['yaml-files'])
-        self.YamlData.mkdir(exist_ok=True)     
-        
+        self.YamlData.mkdir(exist_ok=True)
+
     def generate_normal(self, img_id, traits, rec=0):
         # Raise exception if no unique image could be create after 200 tries
         # Add some more traits or lower the number of generated images
@@ -37,11 +39,13 @@ class Generator:
 
         # initialize image and iterate through layers
         ids = np.zeros((len(self.config_normal),))
-        image = np.zeros((self.config['image_height'], self.config['image_width'], 3))
+        image = np.zeros(
+            (self.config['image_height'], self.config['image_width'], 3))
         for idx, (layer_id, layer) in enumerate(self.config_normal.items()):
-            image, ids[idx], name, value, trait = self.add_layer(image, layer_id, layer, traits)
+            image, ids[idx], name, value, trait = self.add_layer(
+                image, layer_id, layer, traits)
             desc[layer_id] = {'value': value}
-            desc["name"]=img_id
+            desc["name"] = img_id
 
         # make sure that each two doggos differ in at least some traits
         diff = self.trait_matrix - ids
@@ -61,9 +65,18 @@ class Generator:
         # Save image in original and upscaled resolution
         self.save_img(name, image)
         image = self.scale_img(image, self.config['image_scale'])
-        self.save_large(f'{name}_large', image)
+        self.save_large(f'{name}', image)
 
     def generate_legend(self, legend):
+        descl = {}
+        print(legend)
+        descl["background"] = "Legendary"
+        descl["clothes"] = "Legendary"
+        descl["ear"] = "Legendary"
+        descl["fur"] = "Legendary"
+        descl["hat"] = "Legendary"
+        descl["mouth"] = "Legendary"
+        descl["Legendary"] = legend['image_id']
         # Load image of legendary doggo
         image = imageio.imread(legend['src'])[:, :, :3]
         # Save unscaled version in build folder
@@ -71,9 +84,9 @@ class Generator:
         self.save_img(name, image)
         # Scale and save high res version
         image = self.scale_img(image, self.config['image_scale'])
-        self.save_large(f'{name}_large', image)
+        self.save_large(f'{name}', image)
         # Save description
-        self.save_desc(name, {'Legendary': legend['name']})
+        self.save_desc(f'{name}', descl)
 
     def generate_collage(self):
         # Get image size and initialize matrix
@@ -82,13 +95,14 @@ class Generator:
         i_width = self.config['image_width']
         i_height = self.config['image_height']
         collage = np.zeros((c_height * i_height, c_width * i_width, 3))
-        
+
         # Load single images and add them to the collage
         for i in range(c_height):
             for j in range(c_width):
                 # Load single image (ignore alpha channel)
                 image_id = i * c_width + j + 1
-                path = self.ImagesNormal / f'{self.config["prefix"]}{image_id:02d}.png'
+                path = self.ImagesNormal / \
+                    f'{self.config["prefix"]}{image_id:02d}.png'
                 image = imageio.imread(path)[:, :, :3]
                 # Add image to collage
                 x1, x2 = j * i_width, (j + 1) * i_width
@@ -98,7 +112,49 @@ class Generator:
         # scale and save collage
         collage = self.scale_img(collage, self.config['collage_scale'])
         self.save_img('collage', collage)
-        
+
+    def bulk_yaml_to_csv(self):
+        rows_to_write.append(
+            ["Name", "Background", "Clothes", "Ear", "Fur", "Hat", "Mouth", "Class"])
+        for idx, each_yaml_file in enumerate(yaml_file_names):
+            print("Processing file ", idx+1, "of",
+                  len(yaml_file_names), "file name:", each_yaml_file)
+            with open(each_yaml_file) as f:
+                data = yaml.load(f, Loader=yaml.FullLoader)
+                try:
+                    data["Legendary"]
+                except KeyError:
+                    if self.config['hasProperties']:
+                        rows_to_write.append(
+                            [data["name"],
+                             data["background"]["value"],
+                             data["clothes"]["value"],
+                             data["ear"]["value"],
+                             data["fur"]["value"],
+                             data["hat"]["value"],
+                             data["mouth"]["value"]])
+                    else:
+                        print("Has no elements")
+                        rows_to_write.append([data["name"]])
+                else:
+                    if self.config['hasProperties']:
+                        rows_to_write.append(
+                            [f'{0}{data["Legendary"]}',
+                             data["background"],
+                             data["clothes"],
+                             data["ear"],
+                             data["fur"],
+                             data["hat"],
+                             data["mouth"]
+                             ])
+                    else:
+                        print("Has no elements")
+                        rows_to_write.append([f'{0}{data["Legendary"]}'])
+
+        with open('output_csv_file.csv', 'w', newline='') as out:
+            csv_writer = csv.writer(out, delimiter=',', quotechar=' ')
+            csv_writer.writerows(rows_to_write)
+            print("Output file output_csv_file.csv created")
 
     def add_layer(self, image, key_c, value_c, traits):
         # get random trait or use given one
@@ -166,32 +222,7 @@ class Generator:
         src = category[value].get('src', None)
         cat_name = category[value].get('category', cat_name)
         return name, src, cat_name
-    @staticmethod
-    def bulk_yaml_to_csv():
-        for idx, each_yaml_file in enumerate(yaml_file_names):
-            print("Processing file ", idx+1, "of", len(yaml_file_names), "file name:", each_yaml_file)
-            with open(each_yaml_file) as f:
-                data = yaml.load(f,Loader=yaml.FullLoader)
-                print(data)
-                try:
-                    data["Legendary"]
-                except KeyError:
-                    rows_to_write.append(
-                        [data["name"],
-                        data["background"]["value"],
-                        data["clothes"]["value"],
-                        data["ear"]["value"],
-                        data["fur"]["value"],
-                        data["hat"]["value"],
-                        data["mouth"]["value"]])  
-                else:
-                    rows_to_write.append([data["Legendary"]]) 
 
-
-        with open('output_csv_file.csv', 'w') as out:
-            csv_writer = csv.writer(out, delimiter=',', quotechar=' ')
-            csv_writer.writerows(rows_to_write)
-            print("Output file output_csv_file.csv created")
 
 def add_mistakes(idx):
     # Fixed the script over time but some mistakes found their way onto the blockchain.
@@ -231,8 +262,9 @@ def main():
 
     # Create single picture of all doggos
     gen.generate_collage()
-   
+
     gen.bulk_yaml_to_csv()
-   
+
+
 if __name__ == "__main__":
     main()
